@@ -13,8 +13,9 @@ module Rack
 
     def call(env)
       UsdtMarker.probe_i2(@marker_nr, REQUEST_START)
-      @app.call(env)
+      ret = @app.call(env)
       UsdtMarker.probe_i2(@marker_nr, REQUEST_FINISH)
+      ret
     end
   end
 end

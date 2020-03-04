@@ -1,5 +1,5 @@
 module Rack
-  class Ebpf
+  class EBPF
     VERSION = "0.1.0"
   end
 end
