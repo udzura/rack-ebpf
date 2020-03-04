@@ -2,7 +2,7 @@ require_relative 'lib/rack/ebpf/version'
 
 Gem::Specification.new do |spec|
   spec.name          = "rack-ebpf"
-  spec.version       = Rack::Ebpf::VERSION
+  spec.version       = Rack::EBPF::VERSION
   spec.authors       = ["Uchio Kondo"]
   spec.email         = ["udzura@udzura.jp"]
 
