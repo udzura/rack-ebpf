@@ -1,3 +1,92 @@
 #!/usr/bin/env ruby
 
-require "rack/ebpf"
+# require "rack/ebpf"
+require "rbbcc"
+
+pid = ARGV[0] || raise("arguement required")
+
+u = RbBCC::USDT.new(pid: pid.to_i)
+u.enable_probe(probe: "usdt_marker_i2", fn_name: "on_usdt_fired")
+
+b = RbBCC::BCC.new(text: <<CLANG, usdt_contexts: [u])
+#include <uapi/linux/ptrace.h>
+
+struct countup_t {
+};
+
+BPF_HASH(working, u32, u32);
+BPF_HASH(countup, u32, u64);
+BPF_HISTOGRAM(out);
+
+int on_usdt_fired(struct pt_regs *ctx) {
+  u64 ts, buf, phase, start = 0;
+  u32 tid, ok = 1;
+  bpf_usdt_readarg(2, ctx, &buf);
+  bpf_probe_read(&phase, sizeof(phase), (void *)&buf);
+  ts = bpf_ktime_get_ns();
+  tid = bpf_get_current_pid_tgid();
+
+  if(phase == 0) {
+    working.insert(&tid, &ok);
+    countup.insert(&tid, &start);
+  } else {
+    working.delete(&tid);
+
+    u64 *res = countup.lookup(&tid);
+    if(res) {
+      out.increment(bpf_log2l(*res));
+    }
+    countup.delete(&tid);
+  }
+  return 0;
+}
+
+/* TRACEPOINT_PROBE(syscalls, sys_enter_openat) {
+  u64 ts;
+  u32 tid = bpf_get_current_pid_tgid();
+
+  if (working.lookup(&tid)) {
+    ts = bpf_ktime_get_ns();
+    countup.increment(&tid);
+  }
+  return 0;
+} */
+
+TRACEPOINT_PROBE(syscalls, sys_enter_read) {
+  u64 ts;
+  u32 tid = bpf_get_current_pid_tgid();
+
+  if (working.lookup(&tid)) {
+    ts = bpf_ktime_get_ns();
+    countup.increment(tid);
+  }
+  return 0;
+}
+
+/* TRACEPOINT_PROBE(syscalls, sys_enter_write) {
+  u64 ts;
+  u32 tid = bpf_get_current_pid_tgid();
+
+  if (working.lookup(&tid)) {
+    ts = bpf_ktime_get_ns();
+    bpf_trace_printk("write fired: [%ld] tid=%d\\n", ts, tid);
+  }
+  return 0;
+} */
+CLANG
+
+# b.trace_fields do |task, pid, cpu, flags, ts, msg|
+#   printf("%s", msg)
+# end
+
+puts "Tracing... Hit Ctrl-C to end."
+
+loop do
+  begin
+    sleep 0.1
+  rescue Interrupt
+    puts
+    break
+  end
+end
+b["out"].print_log2_hist("count of read")
